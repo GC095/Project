@@ -1,0 +1,102 @@
+// сервер, пока daytime
+#define _CRT_SECURE_NO_WARNINGS
+
+#include <iostream>
+#include <boost/asio.hpp>
+#include <boost/bind.hpp>
+#include <boost/enable_shared_from_this.hpp>
+#include <boost/shared_ptr.hpp>
+#include <ctime>
+#include <string>
+
+using boost::asio::ip::tcp;
+
+std::string make_string()
+{
+	time_t now = time(0);
+	return ctime(&now);
+}
+
+class session
+	: public boost::enable_shared_from_this<session>
+{
+public:
+	typedef boost::shared_ptr<session> pointer;
+
+	static pointer create(boost::asio::io_service& io)
+	{
+		return pointer(new session(io));
+	}
+
+	void start()
+	{
+		boost::shared_ptr<std::string> message(new std::string(make_string()));
+
+		socket_.async_write_some(boost::asio::buffer(*message), 
+			boost::bind(&session::handle_write, shared_from_this(), message, 
+			boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+	}
+
+	tcp::socket& socket()
+	{
+		return socket_;
+	}
+
+private:
+	session(boost::asio::io_service& io)
+		: socket_(io)
+	{}
+
+	void handle_write(boost::shared_ptr<std::string> msg, const boost::system::error_code& e, std::size_t len)
+	{}
+
+	tcp::socket socket_;
+};
+
+class server
+{
+public:
+	server(boost::asio::io_service& io)
+		: acceptor_(io, tcp::endpoint(tcp::v4(), 13)) 
+	{
+		start_accept();
+	}
+	
+private:
+	void start_accept()
+	{
+		session::pointer new_session = session::create(acceptor_.get_io_service());
+
+		acceptor_.async_accept(new_session->socket(), 
+			boost::bind(&server::handle_accept, this, new_session, boost::asio::placeholders::error));
+	}
+
+	void handle_accept(session::pointer new_session, const boost::system::error_code& e)
+	{
+		if (!e)
+		{
+			new_session->start();
+		}
+
+		start_accept();
+	}
+
+	tcp::acceptor acceptor_;
+};
+
+int main()
+{
+	try
+	{
+		boost::asio::io_service io_service;
+		server the_server(io_service);
+		io_service.run();
+	}
+	
+	catch (const std::exception& e)
+	{
+		std::cerr << e.what() << std::endl;
+	}
+
+	return 0;
+}
