@@ -1,21 +1,12 @@
-// сервер, пока daytime
-#define _CRT_SECURE_NO_WARNINGS
-
+// сервер, пока echo
 #include <iostream>
 #include <boost/asio.hpp>
 #include <boost/bind.hpp>
 #include <boost/enable_shared_from_this.hpp>
 #include <boost/shared_ptr.hpp>
-#include <ctime>
-#include <string>
+#include <boost/array.hpp>
 
 using boost::asio::ip::tcp;
-
-std::string make_string()
-{
-	time_t now = time(0);
-	return ctime(&now);
-}
 
 class session
 	: public boost::enable_shared_from_this<session>
@@ -30,10 +21,8 @@ public:
 
 	void start()
 	{
-		boost::shared_ptr<std::string> message(new std::string(make_string()));
-
-		socket_.async_write_some(boost::asio::buffer(*message), 
-			boost::bind(&session::handle_write, shared_from_this(), message, 
+		socket_.async_read_some(boost::asio::buffer(rcv_data), 
+			boost::bind(&session::handle_read, shared_from_this(), 
 			boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
 	}
 
@@ -47,10 +36,23 @@ private:
 		: socket_(io)
 	{}
 
-	void handle_write(boost::shared_ptr<std::string> msg, const boost::system::error_code& e, std::size_t len)
+	void handle_read(const boost::system::error_code& e, std::size_t len)
+	{
+		if (!e)
+		{
+			std::cout << "Got this from client: " << rcv_data.data() << std::endl;
+
+			socket_.async_write_some(boost::asio::buffer(rcv_data),
+				boost::bind(&session::handle_write, shared_from_this(),
+				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+		}
+	}
+
+	void handle_write(const boost::system::error_code& e, std::size_t len)
 	{}
 
 	tcp::socket socket_;
+	boost::array<char, 128> rcv_data;
 };
 
 class server
