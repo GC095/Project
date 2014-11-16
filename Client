@@ -1,8 +1,9 @@
-// асинхронный daytime клиент
+// асинхронный echo клиент
 #include <iostream>
 #include <boost/asio.hpp>
 #include <boost/array.hpp>
 #include <boost/bind.hpp>
+#include <string>
 
 using boost::asio::ip::tcp;
 
@@ -10,7 +11,7 @@ class client
 {
 public:
 	client(boost::asio::io_service& io)
-		: socket_(io)
+		: socket_(io), msg("Hello, sweetie")
 	{
 		start_connect();
 	}
@@ -25,8 +26,18 @@ private:
 	{
 		if (!e)
 		{
-			socket_.async_read_some(boost::asio::buffer(buf), 
-				boost::bind(&client::handle_read, this, 
+			socket_.async_write_some(boost::asio::buffer(msg), 
+				boost::bind(&client::handle_write, this,
+				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+		}
+	}
+
+	void handle_write(const boost::system::error_code& e, std::size_t len)
+	{
+		if (!e)
+		{
+			socket_.async_read_some(boost::asio::buffer(buf),
+				boost::bind(&client::handle_read, this,
 				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
 		}
 	}
@@ -41,6 +52,7 @@ private:
 
 	tcp::socket socket_;
 	boost::array<char, 128> buf;
+	std::string msg;
 };
 
 int main()
