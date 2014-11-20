@@ -1,10 +1,11 @@
-// сервер, пока echo
+// Cервер
 #include <iostream>
 #include <boost/asio.hpp>
 #include <boost/bind.hpp>
 #include <boost/enable_shared_from_this.hpp>
 #include <boost/shared_ptr.hpp>
 #include <boost/array.hpp>
+#include <string>
 
 using boost::asio::ip::tcp;
 
@@ -33,7 +34,7 @@ public:
 
 private:
 	session(boost::asio::io_service& io)
-		: socket_(io)
+		: socket_(io), tmp_msg("some_file_data")
 	{}
 
 	void handle_read(const boost::system::error_code& e, std::size_t len)
@@ -42,17 +43,37 @@ private:
 		{
 			std::cout << "Got this from client: " << rcv_data.data() << std::endl;
 
-			socket_.async_write_some(boost::asio::buffer(rcv_data),
-				boost::bind(&session::handle_write, shared_from_this(),
-				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+			// как временное решение для проверки
+			if (!std::string(rcv_data.data()).compare("write")) // хотим сохранить файл на сервере
+				do_write();
+			else if (!std::string(rcv_data.data()).compare("read")) // хотим скачать файл с сервера
+				do_read();
 		}
 	}
 
 	void handle_write(const boost::system::error_code& e, std::size_t len)
-	{}
+	{
+		std::cout << "You file has been sent to you" << std::endl;
+	}
+
+	void do_read() // передаём файл с сервера клиенту
+	{
+		// делаем проверку, заполняем структуру
+
+		socket_.async_write_some(boost::asio::buffer(tmp_msg),
+			boost::bind(&session::handle_write, shared_from_this(),
+			boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+	}
+
+	void do_write() // сохраняем файл на сервере
+	{
+		// делаем проверку, сохраняем
+		std::cout << "You file has been successfully saved" << std::endl;
+	}
 
 	tcp::socket socket_;
 	boost::array<char, 128> rcv_data;
+	std::string tmp_msg;
 };
 
 class server
