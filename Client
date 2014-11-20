@@ -1,8 +1,10 @@
-// асинхронный echo клиент
+// Клиент
 #include <iostream>
 #include <boost/asio.hpp>
 #include <boost/array.hpp>
 #include <boost/bind.hpp>
+#include <boost/enable_shared_from_this.hpp>
+#include <boost/shared_ptr.hpp>
 #include <string>
 
 using boost::asio::ip::tcp;
@@ -11,7 +13,7 @@ class client
 {
 public:
 	client(boost::asio::io_service& io)
-		: socket_(io), msg("Hello, sweetie")
+		: socket_(io), file_name("")
 	{
 		start_connect();
 	}
@@ -22,13 +24,21 @@ private:
 			boost::bind(&client::handle_connect, this, boost::asio::placeholders::error));
 	}
 
+	void start_session()
+	{
+		choose_action();
+
+		if (resp == '1')
+			do_write();
+		else if (resp == '2')
+			do_read();
+	}
+
 	void handle_connect(const boost::system::error_code& e)
 	{
 		if (!e)
 		{
-			socket_.async_write_some(boost::asio::buffer(msg), 
-				boost::bind(&client::handle_write, this,
-				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+			start_session();
 		}
 	}
 
@@ -36,9 +46,17 @@ private:
 	{
 		if (!e)
 		{
-			socket_.async_read_some(boost::asio::buffer(buf),
-				boost::bind(&client::handle_read, this,
-				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+			if (resp == '1') // записываем файл на сервер
+			{
+				std::cout << file_name << " has been successfully written" << std::endl;
+				start_session();
+			}
+			else if (resp == '2') // скачиваем файл с сервера
+			{
+				socket_.async_read_some(boost::asio::buffer(buf),
+					boost::bind(&client::handle_read, this,
+					boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+			}
 		}
 	}
 
@@ -46,13 +64,56 @@ private:
 	{
 		if (!e)
 		{
+			std::cout << file_name << " has been successfully read" << std::endl;
 			std::cout << buf.data() << std::endl;
+			start_session();
 		}
+	}
+
+	void choose_action()
+	{
+		system("cls");
+		std::cout << "******** Welcome *********\n" << std::endl;
+		std::cout << "To store file on our server, type 1" << std::endl;
+		std::cout << "To download file to your computer, type 2" << std::endl;
+
+		bool is_valid = false;
+		do
+		{
+			std::cin >> resp;
+			is_valid = (resp == '1' || resp == '2') ? true : false;
+			if (!is_valid)
+				std::cout << resp << " is not a valid symbol. Try again.\n" << std::endl;
+			std::cin.clear();
+			std::cin.sync();
+
+		} while (!is_valid);
+	}
+
+	void do_write()
+	{
+		std::cout << "Enter file path: " << std::endl;
+		std::cin >> file_name; // проверку добавить, когда уже с реальными файлами
+
+		socket_.async_write_some(boost::asio::buffer(file_name),
+			boost::bind(&client::handle_write, this,
+			boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+	}
+
+	void do_read()
+	{
+		std::cout << "Enter file name: " << std::endl;
+		std::cin >> file_name; // проверка
+
+		socket_.async_write_some(boost::asio::buffer(file_name),
+			boost::bind(&client::handle_write, this,
+			boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
 	}
 
 	tcp::socket socket_;
 	boost::array<char, 128> buf;
-	std::string msg;
+	std::string file_name;
+	char resp;
 };
 
 int main()
