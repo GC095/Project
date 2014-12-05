@@ -8,6 +8,7 @@
 #include <boost/enable_shared_from_this.hpp>
 #include <boost/shared_ptr.hpp>
 #include <boost/make_shared.hpp>
+#include <vector>
 
 using boost::asio::ip::tcp;
 
@@ -47,7 +48,7 @@ public:
 		std::cout << "Enter file name: ";
 		std::getline(std::cin, file_name);
 		name_len = file_name.size() + 1;
-		
+
 		std::cout << "Enter file data: ";
 		std::getline(std::cin, file_data);
 		data_len = file_data.size() + 1;
@@ -175,9 +176,9 @@ private:
 		{
 			if (length != -1)
 			{
-				file_data = new char[length];
+				file_data.resize(length);
 
-				socket_->async_read_some(boost::asio::buffer(file_data, length),
+				socket_->async_read_some(boost::asio::buffer(file_data),
 					boost::bind(&read_handler::got_data, shared_from_this(),
 					boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
 			}
@@ -186,7 +187,7 @@ private:
 				std::cout << "Sorry, there is no such file (or there has been an error)" << std::endl;
 				boost::make_shared<action_chooser>(socket_)->choose()->handle();
 			}
-			
+
 		}
 		else std::cerr << "Error encountered: " << e << std::endl;
 	}
@@ -196,9 +197,8 @@ private:
 		if (!e)
 		{
 			std::cout << "******************************************" << std::endl;
-			std::cout << "File name: " << file_name << "\nFile data: " << file_data << std::endl;
+			std::cout << "File name: " << file_name << "\nFile data: " << file_data.data() << std::endl;
 			std::cout << "******************************************" << std::endl;
-			delete[] file_data;
 
 			boost::make_shared<action_chooser>(socket_)->choose()->handle();
 		}
@@ -209,7 +209,7 @@ private:
 
 	short cmd, length;
 	std::string file_name;
-	char* file_data;
+	std::vector<char> file_data;
 };
 
 class help_handler
@@ -295,7 +295,7 @@ public:
 private:
 	void start_connect()
 	{
-		socket_->async_connect(tcp::endpoint(boost::asio::ip::address::from_string("127.0.0.1"), 13), 
+		socket_->async_connect(tcp::endpoint(boost::asio::ip::address::from_string("127.0.0.1"), 13),
 			boost::bind(&client::handle_connect, this, boost::asio::placeholders::error));
 	}
 
@@ -311,7 +311,9 @@ private:
 			std::cout << "* quit \t....\t close connection\n" << std::endl;
 
 			boost::make_shared<action_chooser>(socket_)->choose()->handle();
-		} 
+		//	socket_->get_io_service().post(boost::bind(&action_chooser::choose,
+		//		boost::make_shared<action_chooser>(socket_)));
+		}
 		else std::cerr << "Error encountered: " << e << std::endl;
 	}
 
