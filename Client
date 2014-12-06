@@ -12,290 +12,24 @@
 
 using boost::asio::ip::tcp;
 
-class command_handler
-{
-public:
-	typedef boost::shared_ptr<tcp::socket> socket_ptr;
-
-	virtual void handle() = 0;
-};
-
-class action_chooser
-	: public boost::enable_shared_from_this<action_chooser>
-{
-public:
-	typedef boost::shared_ptr<tcp::socket> socket_ptr;
-
-	action_chooser(socket_ptr s)
-		: socket_(s) {}
-
-	boost::shared_ptr<command_handler> choose();
-
-private:
-	std::string resp;
-	socket_ptr socket_;
-};
-
-class write_handler
-	: public command_handler, public boost::enable_shared_from_this<write_handler>
-{
-public:
-	write_handler(socket_ptr s)
-		: socket_(s), cmd(1) {}
-
-	void handle()
-	{
-		std::cout << "Enter file name: ";
-		std::getline(std::cin, file_name);
-		name_len = file_name.size() + 1;
-
-		std::cout << "Enter file data: ";
-		std::getline(std::cin, file_data);
-		data_len = file_data.size() + 1;
-
-		socket_->async_write_some(boost::asio::buffer(&cmd, sizeof(short)),
-			boost::bind(&write_handler::wrote_cmd, shared_from_this(),
-			boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
-	}
-
-private:
-	void wrote_cmd(const boost::system::error_code& e, std::size_t len)
-	{
-		if (!e)
-		{
-			socket_->async_write_some(boost::asio::buffer(&name_len, sizeof(short)),
-				boost::bind(&write_handler::wrote_name_len, shared_from_this(),
-				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
-		}
-		else std::cerr << "Error encountered: " << e << std::endl;
-	}
-
-	void wrote_name_len(const boost::system::error_code& e, std::size_t len)
-	{
-		if (!e)
-		{
-			socket_->async_write_some(boost::asio::buffer(file_name.data(), name_len),
-				boost::bind(&write_handler::wrote_name, shared_from_this(),
-				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
-		}
-		else std::cerr << "Error encountered: " << e << std::endl;
-	}
-
-	void wrote_name(const boost::system::error_code& e, std::size_t len)
-	{
-		if (!e)
-		{
-			socket_->async_write_some(boost::asio::buffer(&data_len, sizeof(short)),
-				boost::bind(&write_handler::wrote_data_len, shared_from_this(),
-				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
-		}
-		else std::cerr << "Error encountered: " << e << std::endl;
-	}
-
-	void wrote_data_len(const boost::system::error_code& e, std::size_t len)
-	{
-		if (!e)
-		{
-			socket_->async_write_some(boost::asio::buffer(file_data.data(), data_len),
-				boost::bind(&write_handler::wrote_data, shared_from_this(),
-				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
-		}
-		else std::cerr << "Error encountered: " << e << std::endl;
-	}
-
-	void wrote_data(const boost::system::error_code& e, std::size_t len)
-	{
-		if (!e)
-		{
-			std::cout << "\"" << file_name << "\" has been successfully saved" << std::endl;
-			boost::make_shared<action_chooser>(socket_)->choose()->handle();
-		}
-		else std::cerr << "Error encountered: " << e << std::endl;
-	}
-
-	short cmd, name_len, data_len;
-	std::string file_name, file_data;
-	socket_ptr socket_;
-};
-
-class read_handler
-	: public command_handler, public boost::enable_shared_from_this<read_handler>
-{
-public:
-	read_handler(socket_ptr s)
-		: socket_(s), cmd(2) {}
-
-	void handle()
-	{
-		std::cout << "Enter file name: ";
-		std::getline(std::cin, file_name);
-		length = file_name.size() + 1;
-
-		socket_->async_write_some(boost::asio::buffer(&cmd, sizeof(short)),
-			boost::bind(&read_handler::wrote_cmd, shared_from_this(),
-			boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
-	}
-
-private:
-	void wrote_cmd(const boost::system::error_code& e, std::size_t len)
-	{
-		if (!e)
-		{
-			socket_->async_write_some(boost::asio::buffer(&length, sizeof(short)),
-				boost::bind(&read_handler::wrote_name_len, shared_from_this(),
-				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
-		}
-		else std::cerr << "Error encountered: " << e << std::endl;
-	}
-
-	void wrote_name_len(const boost::system::error_code& e, std::size_t len)
-	{
-		if (!e)
-		{
-			socket_->async_write_some(boost::asio::buffer(file_name.data(), length),
-				boost::bind(&read_handler::wrote_name, shared_from_this(),
-				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
-		}
-		else std::cerr << "Error encountered: " << e << std::endl;
-	}
-
-	void wrote_name(const boost::system::error_code& e, std::size_t len)
-	{
-		if (!e)
-		{
-			socket_->async_read_some(boost::asio::buffer(&length, sizeof(short)),
-				boost::bind(&read_handler::got_data_len, shared_from_this(),
-				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
-		}
-		else std::cerr << "Error encountered: " << e << std::endl;
-	}
-
-	void got_data_len(const boost::system::error_code& e, std::size_t len)
-	{
-		if (!e)
-		{
-			if (length != -1)
-			{
-				file_data.resize(length);
-
-				socket_->async_read_some(boost::asio::buffer(file_data),
-					boost::bind(&read_handler::got_data, shared_from_this(),
-					boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
-			}
-			else
-			{
-				std::cout << "Sorry, there is no such file (or there has been an error)" << std::endl;
-				boost::make_shared<action_chooser>(socket_)->choose()->handle();
-			}
-
-		}
-		else std::cerr << "Error encountered: " << e << std::endl;
-	}
-
-	void got_data(const boost::system::error_code& e, std::size_t len)
-	{
-		if (!e)
-		{
-			std::cout << "******************************************" << std::endl;
-			std::cout << "File name: " << file_name << "\nFile data: " << file_data.data() << std::endl;
-			std::cout << "******************************************" << std::endl;
-
-			boost::make_shared<action_chooser>(socket_)->choose()->handle();
-		}
-		else std::cerr << "Error encountered: " << e << std::endl;
-	}
-
-	socket_ptr socket_;
-
-	short cmd, length;
-	std::string file_name;
-	std::vector<char> file_data;
-};
-
-class help_handler
-	: public command_handler, public boost::enable_shared_from_this<help_handler>
-{
-public:
-	help_handler(socket_ptr s)
-		: socket_(s) {}
-
-	void handle()
-	{
-		help();
-
-		boost::make_shared<action_chooser>(socket_)->choose()->handle();
-	}
-private:
-	void help()
-	{
-		std::cout << "******************************************" << std::endl;
-		std::cout << "Available commands:" << std::endl;
-		std::cout << "* read \t....\t download file from server" << std::endl;
-		std::cout << "* write ....\t save file on server" << std::endl;
-		std::cout << "* help \t....\t print command list" << std::endl;
-		std::cout << "* quit \t....\t close connection" << std::endl;
-		std::cout << "******************************************" << std::endl;
-	}
-
-	socket_ptr socket_;
-};
-
-class quit_handler
-	: public command_handler, public boost::enable_shared_from_this<quit_handler>
-{
-public:
-	quit_handler(socket_ptr s)
-		: socket_(s), cmd(3) {}
-
-	void handle()
-	{
-		socket_->async_write_some(boost::asio::buffer(&cmd, sizeof(short)),
-			boost::bind(&quit_handler::handle_write, shared_from_this(),
-			boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
-	}
-
-private:
-	void handle_write(const boost::system::error_code& e, std::size_t len)
-	{
-		if (!e) socket_->close(); // или в любом случае?
-		else std::cerr << "Error encountered: " << e << std::endl;
-	}
-
-	socket_ptr socket_;
-	short cmd;
-};
-
-boost::shared_ptr<command_handler> action_chooser::choose()
-{
-	do
-	{
-		std::cout << "Type command: ";
-		std::getline(std::cin, resp);
-
-		if (resp == "read") return boost::make_shared<read_handler>(socket_);
-		if (resp == "write") return boost::make_shared<write_handler>(socket_);
-		if (resp == "quit") return boost::make_shared<quit_handler>(socket_);
-		if (resp == "help") return boost::make_shared<help_handler>(socket_);
-
-		std::cout << resp << " is not a valid command. Try again." << std::endl;
-
-	} while (true);
-}
-
 class client
 {
 public:
-	typedef boost::shared_ptr<tcp::socket> socket_ptr;
-
 	client(boost::asio::io_service& io)
-		: socket_(new tcp::socket(io))
+		: socket_(io)
 	{
 		start_connect();
 	}
+
+	void choose_action()
+	{
+		socket_.get_io_service().post(boost::bind(&client::choose, this));
+	}
+
 private:
 	void start_connect()
 	{
-		socket_->async_connect(tcp::endpoint(boost::asio::ip::address::from_string("127.0.0.1"), 13),
+		socket_.async_connect(tcp::endpoint(boost::asio::ip::address::from_string("127.0.0.1"), 13),
 			boost::bind(&client::handle_connect, this, boost::asio::placeholders::error));
 	}
 
@@ -310,15 +44,279 @@ private:
 			std::cout << "* help \t....\t print command list" << std::endl;
 			std::cout << "* quit \t....\t close connection\n" << std::endl;
 
-			boost::make_shared<action_chooser>(socket_)->choose()->handle();
-		//	socket_->get_io_service().post(boost::bind(&action_chooser::choose,
-		//		boost::make_shared<action_chooser>(socket_)));
+			choose_action();
 		}
 		else std::cerr << "Error encountered: " << e << std::endl;
 	}
 
-	socket_ptr socket_;
+	void choose();
+
+	tcp::socket socket_;
 };
+
+class command_handler
+{
+public:
+	virtual void handle() = 0;
+};
+
+class write_handler
+	: public command_handler, public boost::enable_shared_from_this<write_handler>
+{
+public:
+	write_handler(tcp::socket& s, client& c)
+		: socket_(s), client_(c), cmd(1) {}
+
+	void handle()
+	{
+		std::cout << "Enter file name: ";
+		std::getline(std::cin, file_name);
+		name_len = file_name.size() + 1;
+
+		std::cout << "Enter file data: ";
+		std::getline(std::cin, file_data);
+		data_len = file_data.size() + 1;
+
+		socket_.async_write_some(boost::asio::buffer(&cmd, sizeof(short)),
+			boost::bind(&write_handler::wrote_cmd, shared_from_this(),
+			boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+	}
+
+private:
+	void wrote_cmd(const boost::system::error_code& e, std::size_t len)
+	{
+		if (!e)
+		{
+			socket_.async_write_some(boost::asio::buffer(&name_len, sizeof(short)),
+				boost::bind(&write_handler::wrote_name_len, shared_from_this(),
+				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+		}
+		else std::cerr << "Error encountered: " << e << std::endl;
+	}
+
+	void wrote_name_len(const boost::system::error_code& e, std::size_t len)
+	{
+		if (!e)
+		{
+			socket_.async_write_some(boost::asio::buffer(file_name.data(), name_len),
+				boost::bind(&write_handler::wrote_name, shared_from_this(),
+				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+		}
+		else std::cerr << "Error encountered: " << e << std::endl;
+	}
+
+	void wrote_name(const boost::system::error_code& e, std::size_t len)
+	{
+		if (!e)
+		{
+			socket_.async_write_some(boost::asio::buffer(&data_len, sizeof(short)),
+				boost::bind(&write_handler::wrote_data_len, shared_from_this(),
+				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+		}
+		else std::cerr << "Error encountered: " << e << std::endl;
+	}
+
+	void wrote_data_len(const boost::system::error_code& e, std::size_t len)
+	{
+		if (!e)
+		{
+			socket_.async_write_some(boost::asio::buffer(file_data.data(), data_len),
+				boost::bind(&write_handler::wrote_data, shared_from_this(),
+				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+		}
+		else std::cerr << "Error encountered: " << e << std::endl;
+	}
+
+	void wrote_data(const boost::system::error_code& e, std::size_t len)
+	{
+		if (!e)
+		{
+			std::cout << "\"" << file_name << "\" has been successfully saved" << std::endl;
+			client_.choose_action();
+		}
+		else std::cerr << "Error encountered: " << e << std::endl;
+	}
+
+	tcp::socket& socket_;
+	client& client_;
+
+	short cmd, name_len, data_len;
+	std::string file_name, file_data;
+};
+
+class read_handler
+	: public command_handler, public boost::enable_shared_from_this<read_handler>
+{
+public:
+	read_handler(tcp::socket& s, client& c)
+		: socket_(s), client_(c), cmd(2) {}
+
+	void handle()
+	{
+		std::cout << "Enter file name: ";
+		std::getline(std::cin, file_name);
+		length = file_name.size() + 1;
+
+		socket_.async_write_some(boost::asio::buffer(&cmd, sizeof(short)),
+			boost::bind(&read_handler::wrote_cmd, shared_from_this(),
+			boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+	}
+
+private:
+	void wrote_cmd(const boost::system::error_code& e, std::size_t len)
+	{
+		if (!e)
+		{
+			socket_.async_write_some(boost::asio::buffer(&length, sizeof(short)),
+				boost::bind(&read_handler::wrote_name_len, shared_from_this(),
+				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+		}
+		else std::cerr << "Error encountered: " << e << std::endl;
+	}
+
+	void wrote_name_len(const boost::system::error_code& e, std::size_t len)
+	{
+		if (!e)
+		{
+			socket_.async_write_some(boost::asio::buffer(file_name.data(), length),
+				boost::bind(&read_handler::wrote_name, shared_from_this(),
+				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+		}
+		else std::cerr << "Error encountered: " << e << std::endl;
+	}
+
+	void wrote_name(const boost::system::error_code& e, std::size_t len)
+	{
+		if (!e)
+		{
+			socket_.async_read_some(boost::asio::buffer(&length, sizeof(short)),
+				boost::bind(&read_handler::got_data_len, shared_from_this(),
+				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+		}
+		else std::cerr << "Error encountered: " << e << std::endl;
+	}
+
+	void got_data_len(const boost::system::error_code& e, std::size_t len)
+	{
+		if (!e)
+		{
+			if (length != -1)
+			{
+				file_data.resize(length);
+
+				socket_.async_read_some(boost::asio::buffer(file_data),
+					boost::bind(&read_handler::got_data, shared_from_this(),
+					boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+			}
+			else
+			{
+				std::cout << "Sorry, there is no such file (or there has been an error)." << std::endl;
+				client_.choose_action();
+			}
+
+		}
+		else std::cerr << "Error encountered: " << e << std::endl;
+	}
+
+	void got_data(const boost::system::error_code& e, std::size_t len)
+	{
+		if (!e)
+		{
+			std::cout << "******************************************" << std::endl;
+			std::cout << "File name: " << file_name << "\nFile data: " << file_data.data() << std::endl;
+			std::cout << "******************************************" << std::endl;
+
+			client_.choose_action();
+		}
+		else std::cerr << "Error encountered: " << e << std::endl;
+	}
+
+	tcp::socket& socket_;
+	client& client_;
+
+	short cmd, length;
+	std::string file_name;
+	std::vector<char> file_data;
+};
+
+class help_handler
+	: public command_handler, public boost::enable_shared_from_this<help_handler>
+{
+public:
+	help_handler(client& c)
+		: client_(c) {}
+
+	void handle()
+	{
+		help();
+
+		client_.choose_action();
+	}
+private:
+	void help()
+	{
+		std::cout << "******************************************" << std::endl;
+		std::cout << "Available commands:" << std::endl;
+		std::cout << "* read \t....\t download file from server" << std::endl;
+		std::cout << "* write ....\t save file on server" << std::endl;
+		std::cout << "* help \t....\t print command list" << std::endl;
+		std::cout << "* quit \t....\t close connection" << std::endl;
+		std::cout << "******************************************" << std::endl;
+	}
+
+	client& client_;
+};
+
+class quit_handler
+	: public command_handler, public boost::enable_shared_from_this<quit_handler>
+{
+public:
+	quit_handler(tcp::socket& s)
+		: socket_(s), cmd(3) {}
+
+	void handle()
+	{
+		socket_.async_write_some(boost::asio::buffer(&cmd, sizeof(short)),
+			boost::bind(&quit_handler::handle_write, shared_from_this(),
+			boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+	}
+
+private:
+	void handle_write(const boost::system::error_code& e, std::size_t len)
+	{
+		if (!e) socket_.close(); // или в любом случае?
+		else std::cerr << "Error encountered: " << e << std::endl;
+	}
+
+	tcp::socket& socket_;
+	short cmd;
+};
+
+void client::choose()
+{
+	do
+	{
+		std::cout << "Type command: ";
+		std::string resp;
+		std::getline(std::cin, resp);
+
+		if (resp == "read") {
+			boost::make_shared<read_handler>(socket_, *this)->handle(); return;
+		}
+		else if (resp == "write") {
+			boost::make_shared<write_handler>(socket_, *this)->handle(); return;
+		}
+		else if (resp == "help") {
+			boost::make_shared<help_handler>(*this)->handle(); return;
+		}
+		else if (resp == "quit") {
+			boost::make_shared<quit_handler>(socket_)->handle(); return;
+		}
+
+		std::cout << resp << " is not a valid command. Try again." << std::endl;
+
+	} while (true);
+}
 
 int main()
 {
