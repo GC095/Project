@@ -18,8 +18,6 @@ using boost::asio::ip::tcp;
 class command_handler
 {
 public:
-	typedef boost::shared_ptr<tcp::socket> socket_ptr;
-
 	virtual void handle() = 0;
 };
 
@@ -28,8 +26,7 @@ class session
 {
 public:
 	typedef boost::shared_ptr<session> pointer;
-	typedef boost::shared_ptr<tcp::socket> socket_ptr;
-
+	
 	static pointer create(boost::asio::io_service& io)
 	{
 		return pointer(new session(io));
@@ -37,23 +34,23 @@ public:
 
 	void start()
 	{
-		socket_->async_read_some(boost::asio::buffer(&cmd, sizeof(short)), 
+		socket_.async_read_some(boost::asio::buffer(&cmd, sizeof(short)), 
 			boost::bind(&session::got_cmd, shared_from_this(), 
 			boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
 	}
 
-	socket_ptr socket()
+	tcp::socket& socket()
 	{
 		return socket_;
 	}
 
 private:
 	session(boost::asio::io_service& io)
-		: socket_(new tcp::socket(io)) {}
+		: socket_(io) {}
 
 	void got_cmd(const boost::system::error_code& e, std::size_t len);
 
-	socket_ptr socket_;
+	tcp::socket socket_;
 	short cmd;
 };
 
@@ -61,12 +58,12 @@ class write_handler
 	: public command_handler, public boost::enable_shared_from_this<write_handler>
 {
 public:
-	write_handler(socket_ptr s, session::pointer cs)
+	write_handler(tcp::socket& s, session::pointer cs)
 		: socket_(s), session_(cs) {}
 
 	void handle()
 	{
-		socket_->async_read_some(boost::asio::buffer(&length, sizeof(short)),
+		socket_.async_read_some(boost::asio::buffer(&length, sizeof(short)),
 			boost::bind(&write_handler::got_name_len, shared_from_this(),
 			boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
 	}
@@ -78,7 +75,7 @@ private:
 		{
 			buf.resize(length);
 		
-			socket_->async_read_some(boost::asio::buffer(buf),
+			socket_.async_read_some(boost::asio::buffer(buf),
 				boost::bind(&write_handler::got_name, shared_from_this(),
 				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
 		}
@@ -91,7 +88,7 @@ private:
 		{
 			file_name = buf.data();
 
-			socket_->async_read_some(boost::asio::buffer(&length, sizeof(short)),
+			socket_.async_read_some(boost::asio::buffer(&length, sizeof(short)),
 				boost::bind(&write_handler::got_data_len, shared_from_this(),
 				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
 		}
@@ -104,7 +101,7 @@ private:
 		{
 			buf.resize(length);
 
-			socket_->async_read_some(boost::asio::buffer(buf),
+			socket_.async_read_some(boost::asio::buffer(buf),
 				boost::bind(&write_handler::got_data, shared_from_this(),
 				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
 		}
@@ -129,7 +126,7 @@ private:
 		else std::cerr << "Error encountered: " << e << std::endl;
 	}
 
-	socket_ptr socket_;
+	tcp::socket& socket_;
 	session::pointer session_;
 
 	short length;
@@ -141,12 +138,12 @@ class read_handler
 	: public command_handler, public boost::enable_shared_from_this<read_handler>
 {
 public:
-	read_handler(socket_ptr s, session::pointer cs)
+	read_handler(tcp::socket& s, session::pointer cs)
 		: socket_(s), session_(cs) {}
 
 	void handle()
 	{
-		socket_->async_read_some(boost::asio::buffer(&length, sizeof(short)),
+		socket_.async_read_some(boost::asio::buffer(&length, sizeof(short)),
 			boost::bind(&read_handler::got_name_len, shared_from_this(),
 			boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
 	}
@@ -158,7 +155,7 @@ private:
 		{
 			file_name.resize(length);
 
-			socket_->async_read_some(boost::asio::buffer(file_name),
+			socket_.async_read_some(boost::asio::buffer(file_name),
 				boost::bind(&read_handler::got_name, shared_from_this(),
 				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
 		}
@@ -184,7 +181,7 @@ private:
 				length = -1;
 			}
 
-			socket_->async_write_some(boost::asio::buffer(&length, sizeof(short)),
+			socket_.async_write_some(boost::asio::buffer(&length, sizeof(short)),
 				boost::bind(&read_handler::wrote_data_len, shared_from_this(),
 				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
 		}
@@ -197,7 +194,7 @@ private:
 		{
 			if (length != -1)
 			{
-				socket_->async_write_some(boost::asio::buffer(file_data.data(), length),
+				socket_.async_write_some(boost::asio::buffer(file_data.data(), length),
 					boost::bind(&read_handler::wrote_data, shared_from_this(),
 					boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
 			}
@@ -217,7 +214,7 @@ private:
 		else std::cerr << "Error encountered: " << e << std::endl;
 	}
 
-	socket_ptr socket_;
+	tcp::socket& socket_;
 	session::pointer session_;
 
 	short length;
@@ -229,17 +226,17 @@ class quit_handler
 	: public command_handler, public boost::enable_shared_from_this<quit_handler>
 {
 public:
-	quit_handler(socket_ptr s)
+	quit_handler(tcp::socket& s)
 		: socket_(s) {}
 
 	void handle()
 	{
 		std::cout << "Bye." << std::endl;
-		socket_->close();
+		socket_.close();
 	}
 
 private:
-	socket_ptr socket_;
+	tcp::socket& socket_;
 };
 
 void session::got_cmd(const boost::system::error_code& e, std::size_t len)
@@ -267,7 +264,7 @@ private:
 	{
 		session::pointer new_session = session::create(acceptor_.get_io_service());
 
-		acceptor_.async_accept(*(new_session->socket()), 
+		acceptor_.async_accept(new_session->socket(), 
 			boost::bind(&server::handle_accept, this, new_session, boost::asio::placeholders::error));
 	}
 
