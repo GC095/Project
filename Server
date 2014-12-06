@@ -11,21 +11,9 @@
 #include <boost/make_shared.hpp>
 #include <boost/array.hpp>
 #include <boost/thread.hpp>
+#include <vector>
 
 using boost::asio::ip::tcp;
-
-struct info_pack
-{
-	short	cmd,
-			name_len,
-			data_len;
-};
-
-struct file_pack
-{
-	std::string file_name,
-				file_data;
-};
 
 class command_handler
 {
@@ -88,9 +76,9 @@ private:
 	{
 		if (!e)
 		{
-			buf = new char[length];
+			buf.resize(length);
 		
-			socket_->async_read_some(boost::asio::buffer(buf, length),
+			socket_->async_read_some(boost::asio::buffer(buf),
 				boost::bind(&write_handler::got_name, shared_from_this(),
 				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
 		}
@@ -101,8 +89,7 @@ private:
 	{
 		if (!e)
 		{
-			file_name += buf;
-			delete[] buf;
+			file_name = buf.data();
 
 			socket_->async_read_some(boost::asio::buffer(&length, sizeof(short)),
 				boost::bind(&write_handler::got_data_len, shared_from_this(),
@@ -115,9 +102,9 @@ private:
 	{
 		if (!e)
 		{
-			buf = new char[length];
+			buf.resize(length);
 
-			socket_->async_read_some(boost::asio::buffer(buf, length),
+			socket_->async_read_some(boost::asio::buffer(buf),
 				boost::bind(&write_handler::got_data, shared_from_this(),
 				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
 		}
@@ -129,16 +116,13 @@ private:
 		if (!e)
 		{
 			// записываем в файл
-			file.open(file_name + ".txt");
+			std::ofstream file(file_name + ".txt");
 			if (file)
 			{
-				file << buf << std::flush;
-				file.close();
+				file << buf.data();
+				std::cout << "\"" << file_name << "\" has been successfully saved" << std::endl;
 			}
 			else std::cerr << "Couldn't open \"" << file_name << "\" for write" << std::endl;
-
-			std::cout << "\"" << file_name << "\" has been successfully saved" << std::endl;
-			delete[] buf;
 			
 			session_->start();
 		}
@@ -150,8 +134,7 @@ private:
 
 	short length;
 	std::string file_name;
-	char* buf;
-	std::ofstream file;
+	std::vector<char> buf;
 };
 
 class read_handler
@@ -173,9 +156,9 @@ private:
 	{
 		if (!e)
 		{
-			file_name = new char[length];
+			file_name.resize(length);
 
-			socket_->async_read_some(boost::asio::buffer(file_name, length),
+			socket_->async_read_some(boost::asio::buffer(file_name),
 				boost::bind(&read_handler::got_name, shared_from_this(),
 				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
 		}
@@ -187,17 +170,17 @@ private:
 		if (!e)
 		{
 			// пытаемся открыть файл и считать данные
-			file.open(std::string(file_name) + ".txt");
+			std::ifstream file(std::string(file_name.data()) + ".txt");
+
 			if (file)
 			{
 				std::getline(file, file_data);
-				file.close();
 
 				length = file_data.size() + 1;
 			}
 			else
 			{
-				std::cerr << "Couldn't open \"" << file_name << "\" for read" << std::endl;
+				std::cerr << "Couldn't open \"" << file_name.data() << "\" for read" << std::endl;
 				length = -1;
 			}
 
@@ -218,11 +201,7 @@ private:
 					boost::bind(&read_handler::wrote_data, shared_from_this(),
 					boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
 			}
-			else
-			{
-				delete[] file_name;
-				session_->start();
-			}
+			else session_->start();
 		}
 		else std::cerr << "Error encountered: " << e << std::endl;
 	}
@@ -231,9 +210,8 @@ private:
 	{
 		if (!e)
 		{
-			std::cout << "\"" << file_name << "\" has been sent to the client" << std::endl;
-			delete[] file_name;
-
+			std::cout << "\"" << file_name.data() << "\" has been sent to the client" << std::endl;
+			
 			session_->start();
 		}
 		else std::cerr << "Error encountered: " << e << std::endl;
@@ -243,9 +221,8 @@ private:
 	session::pointer session_;
 
 	short length;
-	char* file_name;
+	std::vector<char> file_name;
 	std::string file_data;
-	std::ifstream file;
 };
 
 class quit_handler
@@ -257,7 +234,7 @@ public:
 
 	void handle()
 	{
-		std::cout << "Bye" << std::endl;
+		std::cout << "Bye." << std::endl;
 		socket_->close();
 	}
 
